@@ -1,6 +1,6 @@
 {
   "name": "KeyScout",
-  "id": "keyscout",
+  "id": "@rkdotdesign-keyscout",
   "api": "1.0.0",
   "main": "code.js",
   "ui": "ui.html",

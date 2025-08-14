@@ -23,4 +23,315 @@
         </select>
       </label>
 
-      <label style="display:flex; flex-
+      <label style="display:flex; flex-direction:column; gap:4px;">
+        <span class="label">Search</span>
+        <input id="query" placeholder="Filter by name or key" class="control" />
+      </label>
+    </div>
+
+    <!-- Table wrapper with centered empty state -->
+    <div id="tableWrap" style="position:relative; margin-top:12px; height: 360px; overflow:auto; border:1px solid var(--border); border-radius:12px; background:#fff;">
+      <div id="emptyOverlay" style="display:none; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;">
+        <div id="emptyText" style="color:#777;">Select a component</div>
+      </div>
+
+      <table id="table" style="width:100%; border-collapse:separate; border-spacing:0; font-size:11.5px; table-layout:fixed;">
+        <colgroup>
+          <col style="width:26%">
+          <col style="width:20%">
+          <col style="width:26%">
+          <col style="width:28%">
+        </colgroup>
+        <thead style="position:sticky; top:0; background:#fafafa; z-index:1;">
+          <tr>
+            <th class="th">Name</th>
+            <th class="th">Type</th>
+            <th class="th">Key</th>
+            <th class="th">ID</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- Footer -->
+    <div id="footer" style="display:flex; align-items:center; justify-content:space-between; margin-top:10px;">
+      <div id="status" style="color:#666; min-height:16px;"></div>
+
+      <div style="display:flex; gap:8px;">
+        <div style="position:relative;">
+          <button id="copyBtn" class="btn">Copy</button>
+          <!-- anchored to right, opens upward -->
+          <div id="copyMenu" class="menu menu-up">
+            <div class="menu-item copy-action" data-format="json">JSON</div>
+            <div class="menu-item copy-action" data-format="ts">TS</div>
+            <div class="menu-item copy-action" data-format="csv">CSV</div>
+            <div class="menu-item copy-action" data-format="txt">TXT</div>
+          </div>
+        </div>
+
+        <div style="position:relative;">
+          <button id="downloadBtn" class="btn">Download</button>
+          <!-- anchored to right, opens upward -->
+          <div id="downloadMenu" class="menu menu-up">
+            <div class="menu-item download-action" data-format="json">JSON</div>
+            <div class="menu-item download-action" data-format="ts">TS</div>
+            <div class="menu-item download-action" data-format="csv">CSV</div>
+            <div class="menu-item download-action" data-format="txt">TXT</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <style>
+      .label{ font-size:10.5px; color:#666; }
+      .control{
+        height:28px; padding:4px 14px 4px 6px; border:1px solid var(--border);
+        border-radius:8px; background:#fff; width:100%; font-size:11px; outline:none;
+      }
+      .control:focus{ border-color:var(--ring); box-shadow:0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent); }
+
+      .btn{
+        padding:8px 12px; border:1px solid var(--border); border-radius:8px; background:#fff; outline:none;
+      }
+      .btn:focus{ border-color:var(--ring); box-shadow:0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent); }
+
+      .th{ text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); font-weight:600; }
+
+      .menu{
+        display:none; position:absolute; z-index:10; min-width:160px; max-width:260px;
+        background:#fff; border:1px solid var(--border); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.12);
+      }
+      .menu-up{ bottom:100%; right:0; margin-bottom:6px; } /* <= keeps inside window on the right */
+      .menu-item{ padding:8px 12px; cursor:pointer; }
+      .menu-item:hover{ background:#f7f7f7; }
+
+      .cell{ padding:8px 10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .row{ border-bottom:1px solid #f1f1f1; }
+
+      /* Type colors + row backgrounds */
+      .t-component      { color:#2251d1; }
+      .t-component_set  { color:#7a3ec8; }
+      .t-variable       { color:#1a7f37; }
+      .t-style          { color:#b05d00; }
+
+      .row-component      { background:#f5f8ff; }
+      .row-component_set  { background:#f7f3ff; }
+      .row-variable       { background:#f3fbf6; }
+      .row-style          { background:#fff7ef; }
+
+      /* Align values + copy icons */
+      .cellKey, .cellId { display:grid; grid-template-columns:1fr auto; align-items:center; gap:6px; overflow:hidden; }
+      .cellKey .value, .cellId .value { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .icon-btn{ background:none; border:0; padding:0; cursor:pointer; display:inline-flex; }
+      .icon-btn:focus{ outline:none; box-shadow:0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent); border-radius:4px; }
+      .icon-btn svg{ display:block; }
+
+      .truncate-name{ max-width:200px; } /* name also hard-truncated in JS to 20 chars */
+      .truncate-key { max-width:160px; } /* ~12 chars shown */
+      .truncate-id  { max-width:120px; } /* ~9 chars shown */
+      .cellType { white-space:nowrap; overflow:visible; text-overflow:clip; }
+    </style>
+
+    <script>
+      const scopeEl = document.getElementById("scope");
+      const kindEl = document.getElementById("kind");
+      const queryEl = document.getElementById("query");
+      const tbody = document.getElementById("tbody");
+      const statusEl = document.getElementById("status");
+      const emptyOverlay = document.getElementById("emptyOverlay");
+      const emptyText = document.getElementById("emptyText");
+
+      const copyBtn = document.getElementById("copyBtn");
+      const copyMenu = document.getElementById("copyMenu");
+      const downloadBtn = document.getElementById("downloadBtn");
+      const downloadMenu = document.getElementById("downloadMenu");
+
+      let lastResults = [];
+      let scanTimer = 0;
+
+      scopeEl.addEventListener("change", triggerScanSoon);
+      kindEl.addEventListener("change", triggerScanSoon);
+      queryEl.addEventListener("input", triggerScanSoon);
+      triggerScanSoon();
+
+      window.onmessage = (event) => {
+        const msg = event.data.pluginMessage;
+        if (!msg) return;
+
+        if (msg.type === "SELECTION_CHANGED") triggerScanSoon();
+
+        if (msg.type === "RESULTS") {
+          lastResults = msg.rows || [];
+          render(lastResults);
+          statusEl.textContent = "Found " + lastResults.length + " items";
+
+          if (!lastResults.length) {
+            setEmpty(scopeEl.value === "selection" ? "Select a component" : "No results found");
+          } else {
+            setEmpty(null);
+          }
+        } else if (msg.type === "WARNING") {
+          statusEl.textContent = "";
+          render([]); setEmpty("Select a component");
+        } else if (msg.type === "ERROR") {
+          statusEl.textContent = "Error: " + msg.message;
+        }
+      };
+
+      function triggerScanSoon() {
+        statusEl.textContent = "Scanning…";
+        if (scanTimer) clearTimeout(scanTimer);
+        scanTimer = setTimeout(runScan, 220);
+      }
+      function runScan() {
+        parent.postMessage({ pluginMessage: {
+          type: "SCAN",
+          scope: scopeEl.value,
+          kindFilter: kindEl.value,
+          query: queryEl.value
+        }}, "*");
+      }
+
+      // Menus
+      copyBtn.onclick = () => toggleMenu(copyMenu);
+      downloadBtn.onclick = () => toggleMenu(downloadMenu);
+      document.addEventListener("click", (e) => {
+        if (!copyBtn.contains(e.target)) copyMenu.style.display = "none";
+        if (!downloadBtn.contains(e.target)) downloadMenu.style.display = "none";
+      });
+      copyMenu.addEventListener("click", async (e) => {
+        const item = e.target.closest(".copy-action");
+        if (!item) return;
+        const fmt = item.dataset.format;
+        const text = exportAs(fmt, lastResults);
+        await copyToClipboard(text);
+        toast("Copied " + fmt.toUpperCase());
+        copyMenu.style.display = "none";
+      });
+      downloadMenu.addEventListener("click", (e) => {
+        const item = e.target.closest(".download-action");
+        if (!item) return;
+        const fmt = item.dataset.format;
+        const text = exportAs(fmt, lastResults);
+        const mime = fmt === "csv" ? "text/csv" : "text/plain";
+        download("keyscout." + fmt, text, mime);
+        downloadMenu.style.display = "none";
+      });
+      function toggleMenu(menu) {
+        // ensure right-anchored and up-opening keeps inside; just toggle visibility
+        menu.style.display = (menu.style.display === "block") ? "none" : "block";
+      }
+
+      function setEmpty(text) {
+        if (text == null) emptyOverlay.style.display = "none";
+        else { emptyText.textContent = text; emptyOverlay.style.display = "flex"; }
+      }
+
+      // Render rows
+      function render(rows) {
+        tbody.innerHTML = "";
+        for (const r of rows) {
+          const tr = document.createElement("tr");
+          tr.className = "row " + rowClass(r.kind);
+
+          const shortName = r.name ? (r.name.length > 20 ? r.name.slice(0,20) + "…" : r.name) : "";
+          const shortKey  = r.key  ? (r.key.length  > 12 ? r.key.slice(0,12)  + "…" : r.key)  : "";
+          const shortId   = r.id   ? (r.id.length   > 9  ? r.id.slice(0,9)   + "…" : r.id)   : "";
+
+          const nameHTML = `<span class="truncate-name" title="${escapeHtml(r.name)}" style="display:inline-block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(shortName)}</span>`;
+          const keyHTML  = r.key ? `<div class="cellKey"><span class="value truncate-key" title="${escapeHtml(r.key)}">${escapeHtml(shortKey)}</span>${iconCopyBtn(r.key)}</div>` : "—";
+          const idHTML   = `<div class="cellId"><span class="value truncate-id" title="${r.id}">${shortId}</span>${iconCopyBtn(r.id)}</div>`;
+
+          tr.innerHTML = `
+            <td class="cell">${nameHTML}</td>
+            <td class="cell cellType ${typeClass(r.kind)}">${r.kind}</td>
+            <td class="cell">${keyHTML}</td>
+            <td class="cell">${idHTML}</td>
+          `;
+          attachCopyHandlers(tr);
+          tbody.appendChild(tr);
+        }
+      }
+
+      function rowClass(kind){
+        if (kind === "component") return "row-component";
+        if (kind === "component_set") return "row-component_set";
+        if (kind === "variable") return "row-variable";
+        if (kind === "style") return "row-style";
+        return "";
+      }
+      function typeClass(kind){
+        if (kind === "component") return "t-component";
+        if (kind === "component_set") return "t-component_set";
+        if (kind === "variable") return "t-variable";
+        if (kind === "style") return "t-style";
+        return "";
+      }
+
+      // Exporters (keys-only removed)
+      function exportAs(fmt, rows) {
+        if (fmt === "json") return JSON.stringify(rows, null, 2);
+        if (fmt === "csv")  return toCSV(rows);
+        if (fmt === "txt")  return rows.map(r => `${r.name}\t${r.kind}\t${r.key || ""}\t${r.id}`).join("\n");
+        if (fmt === "ts")   return toTS(rows);
+        return "";
+      }
+      function toCSV(rows) {
+        const headers = ["name","type","key","id"];
+        const esc = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+        const lines = [headers.join(",")];
+        for (const r of rows) lines.push([r.name, r.kind, r.key || "", r.id].map(esc).join(","));
+        return lines.join("\n");
+      }
+      function toTS(rows) {
+        const body = rows.map(r => `  { name: ${JSON.stringify(r.name)}, type: "${r.kind}", id: "${r.id}", key: ${JSON.stringify(r.key || "")} }`).join(",\n");
+        return `export const KEYSCOUT = [\n${body}\n] as const;\n`;
+      }
+
+      // Copy helpers
+      function iconCopyBtn(value) {
+        return `
+          <button class="icon-btn" data-copy="${value}" title="Copy">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="9" y="9" width="10" height="10" rx="2" stroke="#666" stroke-width="1.5"></rect>
+              <rect x="5" y="5" width="10" height="10" rx="2" stroke="#666" stroke-width="1.5" opacity="0.6"></rect>
+            </svg>
+          </button>
+        `;
+      }
+      function attachCopyHandlers(root) {
+        root.addEventListener("click", async (e) => {
+          const btn = e.target.closest('button[data-copy]');
+          if (!btn) return;
+          const val = btn.getAttribute('data-copy') || '';
+          await copyToClipboard(val);
+          toast("Copied");
+        });
+      }
+      async function copyToClipboard(text) {
+        try { if (navigator.clipboard?.writeText) return await navigator.clipboard.writeText(text); } catch(_) {}
+        const ta = document.createElement('textarea'); ta.value = text;
+        ta.style.position='fixed'; ta.style.top='-1000px'; ta.setAttribute('readonly','');
+        document.body.appendChild(ta); ta.select(); try{document.execCommand('copy');}catch(_){}
+        document.body.removeChild(ta);
+      }
+
+      // Misc
+      function download(filename, data, mime) {
+        const blob = new Blob([data], { type: mime });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+      function toast(text) { statusEl.textContent = text; setTimeout(() => (statusEl.textContent = ""), 1200); }
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"'`=\/]/g, (c) => ({
+          "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;","/":"&#x2F;","`":"&#x60;","=":"&#x3D;"
+        }[c]));
+      }
+    </script>
+  </body>
+</html>
